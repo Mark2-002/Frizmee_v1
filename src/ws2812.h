@@ -120,7 +120,7 @@ int8_t ws2812_init(void)
     spi_dev = DEVICE_DT_GET(DT_NODELABEL(spi00));
     if (!device_is_ready(spi_dev))
     {
-        printf("SPI device not ready!");
+        printk("SPI device not ready!");
         return -1;
     }
     else

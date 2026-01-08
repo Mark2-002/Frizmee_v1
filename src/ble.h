@@ -12,7 +12,7 @@ bool request_recieved;
 static struct bt_conn *default_conn;
 static bool ble_connected = false;
 
-int8_t led_status = 0; // 0-off 1- advertising 2-connected 3-custom 4-error
+int8_t led_status = 1; // 0-off 1- advertising 2-connected 3-custom 4-error
 // uint8_t start_adv = 0;
 
 #define BT_UUID_CUSTOM_SERVICE_VAL \
@@ -217,7 +217,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	ble_connected = false;
 	led_status = 4;
 	// start_adv = 1;
-	k_msleep(200);
+	k_msleep(1000);
 	if (default_conn)
 	{
 		led_status = 1;

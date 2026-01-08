@@ -51,12 +51,16 @@ static const struct adc_dt_spec adc_channels[] = {DT_FOREACH_PROP_ELEM(DT_PATH(z
 #define BNO055_INT_STA_ADDR 0X37
 
 #define SLEEP_TIME_MS 1000
+#define ACC_NM_INT (1 << 1)
 
-/* The devicetree node identifier for the "led0" alias. */
-#define LED0_NODE DT_ALIAS(led0)
+// #define ACC_AM_MSK (1 << 0)
+#define ACC_NM_MSK (1 << 1)
+#define ACC_INT_SETTINGS 0x12
+#define ACC_NM_THRES 0x03
+#define ACC_NM_SET (1 << 0) | (30 << 1)
+// 0x15
+#define ACCONLY 0x01
 
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
-const struct device *wdt = DEVICE_DT_GET(DT_NODELABEL(wdt31));
 // int wdt_channel_id;
 
 // command
@@ -75,10 +79,10 @@ const struct device *wdt = DEVICE_DT_GET(DT_NODELABEL(wdt31));
 #define MY_PRIORITY 5
 
 /* battery */
-int16_t bat_voltage;
-uint8_t soc;
+int32_t bat_voltage = 0;
+uint8_t soc = 0;
 
-// static const struct gpio_dt_spec sw0 = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+const struct device *wdt = DEVICE_DT_GET(DT_NODELABEL(wdt31));
 K_THREAD_STACK_DEFINE(my_stack_area, MY_STACK_SIZE);
 struct k_thread my_thread_data;
 uint8_t r = 0, g = 50, b = 0;
@@ -86,11 +90,6 @@ uint8_t r = 0, g = 50, b = 0;
 uint8_t buf;
 uint8_t count = 0;
 int8_t in_Hand_Threshold = 3;
-struct adc_sequence sequence = {
-	.buffer = &buf,
-	/* buffer size in bytes, not number of samples */
-	.buffer_size = sizeof(buf),
-};
 /* NFC */
 #define MAX_REC_COUNT 1
 #define NDEF_MSG_BUF_SIZE 256
@@ -142,10 +141,7 @@ void nfc_write(void *p1, void *p2, void *p3)
 }
 
 static const struct gpio_dt_spec Interrupt = GPIO_DT_SPEC_GET_OR(SW0_NODE, gpios, {0});
-// const struct device *gpio0 = DEVICE_DT_GET(DT_NODELABEL(gpio0));
-static const struct gpio_dt_spec led0 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct device *i2c = DEVICE_DT_GET(DT_ALIAS(i2c1));
-
 int16_t ax, ay, az, mx, my, gx, gy, gz, mz, qw, qx, qy, qz, lax, lay, laz, heading, roll, pitch;
 int16_t axis_diff_xp = 0;
 int16_t axis_diff_xa = 0;
@@ -187,19 +183,6 @@ void read_bno055(void)
 	axis_diff_yp = ay;
 	axis_diff_za = axis_diff_zp - az;
 	axis_diff_zp = az;
-
-	// printk("\n=== BNO055 COMPLETE DATA ===\n");
-
-	// printk("Accel (mg): %d %d %d\n", ax, ay, az);
-	// printk("Mag   (uT): %d %d %d\n", mx, my, mz);
-	// printk("Gyro (dps): %d %d %d\n", gx, gy, gz);
-
-	// printk("Euler (deg*16): Heading=%d Roll=%d Pitch=%d\n",
-	// 	   heading, roll, pitch);
-
-	// printk("Quat: W=%d X=%d Y=%d Z=%d\n", qw, qx, qy, qz);
-
-	// printk("Linear Acc (mg): %d %d %d\n", lax, lay, laz);
 }
 void send_all_bno055(void)
 {
@@ -207,58 +190,35 @@ void send_all_bno055(void)
 	// Devided voltage on 4.2v is 2.166
 	// Devided voltage on 3.2v is 1.604
 	// Devided voltage at 1v is 0.5012919896640827
-	if (bat_voltage > 2166)
-	{
-		bat_voltage = 2166;
-	}
-	else if (bat_voltage < 1604)
-	{
-		bat_voltage = 1604;
-	}
-	soc = (int8_t)((bat_voltage - 1604) * 100 / (2166 - 1604));
-	// uint8_t soc1 = (int8_t)((bat_voltage - 1.604) * 100 / (4200 - 1.604));
 	memset(data, 0, sizeof(data));
 	data[0] = 0xaa; // header
 	data[1] = 0x01; // header all data
-	// data[2] = soc;				   // reserved
-	// data[3] = (bat_voltage / 100); // version
-	memcpy(&data[1], &soc, sizeof(float));		   // accel float
-	memcpy(&data[5], &bat_voltage, sizeof(float)); // accel float							   // reserved
-	memcpy(&data[9], &ax, sizeof(float));		   // accel float
-	memcpy(&data[13], &ay, sizeof(float));
-	memcpy(&data[17], &az, sizeof(float));
-	memcpy(&data[21], &gx, sizeof(float)); // gyro float
-	memcpy(&data[25], &gy, sizeof(float));
-	memcpy(&data[29], &gz, sizeof(float));
-	memcpy(&data[33], &qw, sizeof(float)); // Quaterion code
-	memcpy(&data[37], &qx, sizeof(float));
-	memcpy(&data[41], &qy, sizeof(float));
-	memcpy(&data[45], &qz, sizeof(float));
-	memcpy(&data[49], &heading, sizeof(float)); // Eular float
-	memcpy(&data[53], &roll, sizeof(float));
-	memcpy(&data[57], &pitch, sizeof(float));
+	data[2] = 0x00; // reserved
+	data[3] = 0x01; // version
+	data[4] = 0x00; // Blank
+	data[5] = 0xff; // Blank
+	data[6] = soc;
+	data[7] = bat_voltage / 100;
+	data[8] = bat_voltage % 100;
+	memcpy(&data[9], &ax, sizeof(int16_t)); // accel int16_t
+	memcpy(&data[13], &ay, sizeof(int16_t));
+	memcpy(&data[17], &az, sizeof(int16_t));
+	memcpy(&data[21], &gx, sizeof(int16_t)); // gyro int16_t
+	memcpy(&data[25], &gy, sizeof(int16_t));
+	memcpy(&data[29], &gz, sizeof(int16_t));
+	memcpy(&data[33], &qw, sizeof(int16_t)); // Quaterion code
+	memcpy(&data[37], &qx, sizeof(int16_t));
+	memcpy(&data[41], &qy, sizeof(int16_t));
+	memcpy(&data[45], &qz, sizeof(int16_t));
+	memcpy(&data[49], &heading, sizeof(int16_t)); // Eular int16_t
+	memcpy(&data[53], &roll, sizeof(int16_t));
+	memcpy(&data[57], &pitch, sizeof(int16_t));
 	memcpy(&data[61], &led_status, sizeof(int8_t)); // status code
-	// data[9] = ax;				   // accel float
-	// data[13] = ay;
-	// data[17] = az;
-	// data[21] = gx; // gyro float
-	// data[25] = gy;
-	// data[29] = gz;
-	// data[33] = qw; // Quaterion code
-	// data[37] = qx;
-	// data[41] = qy;
-	// data[45] = qz;
-	// data[49] = heading; // Eular float
-	// data[53] = roll;
-	// data[57] = pitch;
-	// data[61] = led_status;
 	data[62] = 0x55;
-	// sprintf((char *)data, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", ax, ay, az, mx, my, mz, gx, gy, gz, heading, roll, pitch, qw, qx, qy, qz, lax, lay, laz);
 	if (ble_connected)
 	{
 		notify_data();
 	}
-	printk("============================\n");
 }
 
 uint8_t blink = 1;
@@ -266,23 +226,16 @@ bool led_flag = 0;
 
 void ws2812_led()
 {
-	// start_nfc();
-	// nfc_write();
-
 	/* The format of payload is:
-
 	BYTE 0: HEADER
 	BYTE 1: RED INTENSITY
 	BYTE 2: GREEN INTENSITY
 	BYTE 3: BLUE INTENSITY
 	BYTE 4: BLINK
 	BYTE 5: FOOTER
-
 	*/
-
 	// Make sure that the buffer received is of 6 bytes
 	// and has the desired header and footer
-	gpio_pin_set(led.port, led.pin, 1); // Ensure boost converter is on
 	while (1)
 	{
 		if (request_recieved)
@@ -355,10 +308,9 @@ void ws2812_led()
 }
 
 #define PDN_PIN NRF_GPIO_PIN_MAP(1, 13) // P1.13
-#define RX_PIN NRF_GPIO_PIN_MAP(1, 9)	// P1.13
-#define TX_PIN NRF_GPIO_PIN_MAP(1, 6)	// P1.13
-#define ANT_PIN NRF_GPIO_PIN_MAP(1, 10) // P1.13
-
+#define RX_PIN NRF_GPIO_PIN_MAP(1, 9)	// P1.9
+#define TX_PIN NRF_GPIO_PIN_MAP(1, 6)	// P1.6
+#define ANT_PIN NRF_GPIO_PIN_MAP(1, 10) // P1.10
 static void fem_Init_54dk_cust()
 {
 	nrf_gpio_cfg_output(PDN_PIN); // PDN
@@ -366,10 +318,8 @@ static void fem_Init_54dk_cust()
 	nrf_gpio_cfg_output(TX_PIN);  // TX
 	nrf_gpio_cfg_output(RX_PIN);  // RX
 	nrf_gpio_cfg_output(ANT_PIN); // Clear=20 Set=10
-
-	nrf_gpio_pin_set(23);	  // PDN
-	nrf_gpio_pin_set(17);	  // MODE/CSD
-	nrf_gpio_pin_set(TX_PIN); // MODE/CSD
+	nrf_gpio_pin_set(23);		  // PDN
+	nrf_gpio_pin_set(17);		  // MODE/CSD
 };
 static void fem_Tx_54_20()
 {
@@ -387,6 +337,7 @@ static void fem_Tx_54_10()
 	nrf_gpio_pin_set(TX_PIN);	 // TX
 	printf("Tx is Enabled\n");
 };
+
 int bat_pwr_init()
 {
 	int err;
@@ -409,36 +360,46 @@ int bat_pwr_init()
 	}
 	return 0;
 }
-int bat_read()
+void bat_read()
 {
 	uint8_t err;
+	uint16_t adc_buf;
+	struct adc_sequence sequence = {
+		.buffer = &adc_buf,
+		/* buffer size in bytes, not number of samples */
+		.buffer_size = sizeof(adc_buf),
+	};
 	printk("ADC reading[%u]:\n", count++);
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
 	{
+		int32_t val_mv;
 
 		printk("- %s, channel %d: ",
 			   adc_channels[i].dev->name,
 			   adc_channels[i].channel_id);
-
 		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
-
 		err = adc_read(adc_channels[i].dev, &sequence);
 		if (err < 0)
 		{
 			printk("Could not read (%d)\n", err);
 			continue;
 		}
+		/*
+		 * If using differential mode, the 16 bit value
+		 * in the ADC sample buffer should be a signed 2's
+		 * complement value.
+		 */
 		if (adc_channels[i].channel_cfg.differential)
 		{
-			bat_voltage = (int32_t)((int16_t)buf);
+			val_mv = (int32_t)((int16_t)adc_buf);
 		}
 		else
 		{
-			bat_voltage = (int32_t)buf;
+			val_mv = (int32_t)adc_buf;
 		}
-		printk("%" PRId32, bat_voltage);
+		printk("%" PRId32, val_mv);
 		err = adc_raw_to_millivolts_dt(&adc_channels[i],
-									   &bat_voltage);
+									   &val_mv);
 		/* conversion to mV may not be supported, skip if not */
 		if (err < 0)
 		{
@@ -446,14 +407,20 @@ int bat_read()
 		}
 		else
 		{
-			printk(" = %" PRId32 " mV\n", bat_voltage);
+			printk(" = %" PRId32 " mV\n", val_mv);
 		}
+		if (val_mv > 2166)
+		{
+			val_mv = 2166;
+		}
+		else if (val_mv < 1604)
+		{
+			val_mv = 1604;
+		}
+		soc = ((val_mv - 1604) * 100 / (2166 - 1604));
+		bat_voltage = val_mv;
+		printk("\nCharged = %d per", soc);
 	}
-
-	k_sleep(K_MSEC(500));
-	count++;
-
-	return 0;
 }
 
 void print_reset_cause(uint32_t reset_cause)
@@ -479,7 +446,6 @@ void print_reset_cause(uint32_t reset_cause)
 int sys_off()
 {
 
-	int rc;
 	uint32_t reset_cause;
 	hwinfo_get_reset_cause(&reset_cause);
 	print_reset_cause(reset_cause);
@@ -499,6 +465,7 @@ uint8_t read_int_status()
 	}
 	return int_status;
 }
+
 int wdt_channel_id;
 void watch_dog_timer_init()
 {
@@ -513,14 +480,97 @@ void watch_dog_timer_init()
 	wdt_setup(wdt, NULL);
 };
 
+void bno055_enter_low_power(void)
+{
+	/* Low_power */
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, OPAR_MODE_REG, 0x00);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, POWER_MODE_ADDR, 0x01);
+	k_msleep(20);
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, PAGE_ID, 1);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, INT_EN, ACC_AM_INT | ACC_NM_INT);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, INT_MASK, 0x00);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_AM_THRES, 0x0E);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_INT_SETTINGS, 0b00011110);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_NM_THRES, 0x03);
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_NM_SET, (1 << 0) | (30 << 1));
+	k_msleep(20);
+
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, PAGE_ID, 0);
+	k_msleep(20);
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, OPAR_MODE_REG, ACCONLY);
+	k_msleep(20);
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, SYS_TRIGGER, 0x40);
+}
+// #define ACC_AM_INT (1 << 0)
+
 int main(void)
 {
 	start_time = k_uptime_get();
 	int err;
+	watch_dog_timer_init();
 
 	ws2812_init();
+	k_msleep(100);
+
+	k_thread_create(&my_thread_data, my_stack_area, K_THREAD_STACK_SIZEOF(my_stack_area), ws2812_led, NULL, NULL, NULL, MY_PRIORITY, 0, K_NO_WAIT);
 	bat_pwr_init();
-	watch_dog_timer_init();
+	bat_read();
+
+	if (soc < 10)
+	{
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, OPAR_MODE_REG, 0x00); // enter CONFIGMODE (verified)
+		// k_msleep(20);
+		// // // Go to page 1 set of registers
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, PAGE_ID, 1); // (verified)
+		// k_msleep(20);
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, INT_EN, ACC_AM_INT); // INT enable (verified)
+		// k_msleep(20);
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_AM_THRES, 0x0e); // Threshold
+		// k_msleep(20);
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, INT_MASK, ACC_AM_MSK); // INT_MSK (verified)
+		// k_msleep(20);
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, PAGE_ID, 0); // Exiting page_ID (verified)
+		// k_msleep(20);
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, OPAR_MODE_REG, NDOF); // NDOF mode (fusion mode) (verified)
+		// k_msleep(20);
+		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, SYS_TRIGGER, 0x40); // Resetting Int pin
+		// gpio_pin_configure_dt(&Interrupt, GPIO_INPUT);
+		// gpio_pin_interrupt_configure_dt(&Interrupt, GPIO_INT_LEVEL_HIGH);
+
+		uint8_t low_pwr_count = 0;
+		while (low_pwr_count < 4)
+		{
+			led_status = 4;
+			low_pwr_count++;
+			k_msleep(1000);
+		}
+		// if (read_int_status())
+		// {
+		// 	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, SYS_TRIGGER, 0x40); // Resetting Int pin
+		// }
+		// else
+		// {
+		// 	led_status = 5;
+		// 	k_msleep(1000);
+		// 	nfc_flag = 0;
+		// 	sys_off();
+		// }
+	}
+
 	fem_Init_54dk_cust();
 	fem_Tx_54_20();
 	err = ble_init();
@@ -529,9 +579,11 @@ int main(void)
 		printk("Bluetooth init failed (err %d)\n", err);
 	}
 	start_advertising();
+
+	/* Old AM&BNo055 configuration */
 	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, OPAR_MODE_REG, 0x00); // enter CONFIGMODE (verified)
 	k_msleep(20);
-	// Go to page 1 set of registers
+	// // Go to page 1 set of registers
 	// to set int_en, acc_am_threshold, acc_am_settings registers
 	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, PAGE_ID, 1); // (verified)
 	k_msleep(20);
@@ -539,7 +591,7 @@ int main(void)
 	k_msleep(20);
 	// -- part start --
 	// This part is mislabelled: ACC_AM_THRES is the settings register here, not the threshold
-	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_AM_THRES, 0x0e); // Threshold (PROBLEMATIC)
+	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, ACC_AM_THRES, 0x0e); // Threshold
 	k_msleep(20);
 	// -- part end --
 	// PROBLEM: Actual threshold was never set
@@ -552,26 +604,21 @@ int main(void)
 	k_msleep(20);
 	i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, SYS_TRIGGER, 0x40); // Resetting Int pin
 
-	k_thread_create(&my_thread_data, my_stack_area,
-					K_THREAD_STACK_SIZEOF(my_stack_area),
-					ws2812_led,
-					NULL, NULL, NULL,
-					MY_PRIORITY, 0, K_NO_WAIT);
+	/* Down part is good */
 
 	while (1)
 	{
 		wdt_feed(wdt, wdt_channel_id);
+		bat_read();
 		send_all_bno055();
 		k_msleep(100);
-		bat_read();
 		int val_time = k_uptime_get();
 		// nrf_gpio_cfg_sense_set(NRF_DT_GPIOS_TO_PSEL(DT_ALIAS(sw0), gpios), NRF_GPIO_PIN_SENSE_HIGH);
 		printk("current time %d", val_time);
 		if (!ble_connected && val_time > start_time + 10000)
 		{
-
+			// bno055_enter_low_power();
 			led_flag = 0;
-			// led_status = 6; // white
 			blink = 0;
 			gpio_pin_configure_dt(&Interrupt, GPIO_INPUT);
 			if (read_int_status())

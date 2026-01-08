@@ -1,0 +1,12 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "nrf-connect",
+			"request": "launch",
+			"name": "Launch freezmee_code/build/freezmee_code",
+			"config": "${workspaceFolder}/build/freezmee_code",
+			"runToEntryPoint": "main"
+		}
+	]
+}
