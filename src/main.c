@@ -149,13 +149,21 @@ int16_t axis_diff_yp = 0;
 int16_t axis_diff_ya = 0;
 int16_t axis_diff_zp = 0;
 int16_t axis_diff_za = 0;
+bool bno055_Eflag = 0;
 void read_bno055(void)
 {
 	uint8_t buf[38];
 	k_msleep(1000);
-	if (i2c_burst_read(i2c, BNO055_i2C_ADDR, 0x08, buf, 38))
+	if (i2c_burst_read(i2c, BNO055_i2C_ADDR, 0x08, buf, 38) < 0)
 	{
 		printk("Read error!\n");
+		bno055_Eflag = 1;
+		led_status = 7;
+		k_msleep(2000);
+	}
+	else
+	{
+		bno055_Eflag = 0;
 	}
 	ax = (buf[1] << 8) | buf[0];
 	ay = (buf[3] << 8) | buf[2];
@@ -296,6 +304,10 @@ void ws2812_led()
 		else if (led_status == 6)
 		{
 			ws2812_set_colors(0xff, 0, 0xff);
+		}
+		else if (led_status == 7)
+		{
+			ws2812_set_colors(99, 78, 00);
 		}
 		if (blink)
 		{
@@ -530,7 +542,7 @@ int main(void)
 	bat_pwr_init();
 	bat_read();
 
-	if (soc < 10)
+	if (soc < 20)
 	{
 		// i2c_reg_write_byte(i2c, BNO055_i2C_ADDR, OPAR_MODE_REG, 0x00); // enter CONFIGMODE (verified)
 		// k_msleep(20);
@@ -615,7 +627,7 @@ int main(void)
 		int val_time = k_uptime_get();
 		// nrf_gpio_cfg_sense_set(NRF_DT_GPIOS_TO_PSEL(DT_ALIAS(sw0), gpios), NRF_GPIO_PIN_SENSE_HIGH);
 		printk("current time %d", val_time);
-		if (!ble_connected && val_time > start_time + 10000)
+		if (!ble_connected && val_time > start_time + 10000 && bno055_Eflag == 0)
 		{
 			// bno055_enter_low_power();
 			led_flag = 0;
