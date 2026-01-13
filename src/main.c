@@ -142,7 +142,7 @@ void nfc_write(void *p1, void *p2, void *p3)
 
 static const struct gpio_dt_spec Interrupt = GPIO_DT_SPEC_GET_OR(SW0_NODE, gpios, {0});
 static const struct device *i2c = DEVICE_DT_GET(DT_ALIAS(i2c1));
-int16_t ax, ay, az, mx, my, gx, gy, gz, mz, qw, qx, qy, qz, lax, lay, laz, heading, roll, pitch;
+float ax, ay, az, mx, my, gx, gy, gz, mz, qw, qx, qy, qz, lax, lay, laz, heading, roll, pitch, gvx, gvy, gvz;
 int16_t axis_diff_xp = 0;
 int16_t axis_diff_xa = 0;
 int16_t axis_diff_yp = 0;
@@ -174,6 +174,9 @@ void read_bno055(void)
 	gx = (buf[13] << 8) | buf[12];
 	gy = (buf[15] << 8) | buf[14];
 	gz = (buf[17] << 8) | buf[16];
+	heading = (buf[19] << 8) | buf[18];
+	roll = (buf[21] << 8) | buf[20];
+	pitch = (buf[23] << 8) | buf[22];
 	qw = (buf[25] << 8) | buf[24];
 	qx = (buf[27] << 8) | buf[26];
 	qy = (buf[29] << 8) | buf[28];
@@ -181,9 +184,32 @@ void read_bno055(void)
 	lax = (buf[33] << 8) | buf[32];
 	lay = (buf[35] << 8) | buf[34];
 	laz = (buf[37] << 8) | buf[36];
-	heading = (buf[19] << 8) | buf[18];
-	roll = (buf[21] << 8) | buf[20];
-	pitch = (buf[23] << 8) | buf[22];
+	// gvx = (buf[39] << 8) | buf[38];
+	// gvy = (buf[41] << 8) | buf[40];
+	// gvz = (buf[43] << 8) | buf[42];
+
+	ax = ax / 100.0f;
+	ay = ay / 100.0f;
+	az = az / 100.0f;
+	mx = mx / 16.0f;
+	my = my / 16.0f;
+	mz = mz / 16.0f;
+	gx = gx / 16.0f;
+	gy = gy / 16.0f;
+	gz = gz / 16.0f;
+	heading = heading / 16.0f;
+	roll = roll / 16.0f;
+	pitch = pitch / 16.0f;
+	qw = qw / 16384.0f;
+	qx = qx / 16384.0f;
+	qy = qy / 16384.0f;
+	qz = qz / 16384.0f;
+	lax = lax / 100.0f;
+	lay = lay / 100.0f;
+	laz = laz / 100.0f;
+	// gvx = gvx/100.0f;
+	// gvy = gvx/100.0f;
+	// gvz = gvx/100.0f;
 
 	axis_diff_xa = axis_diff_xp - ax;
 	axis_diff_xp = ax;
@@ -203,24 +229,25 @@ void send_all_bno055(void)
 	data[1] = 0x01; // header all data
 	data[2] = 0x00; // reserved
 	data[3] = 0x01; // version
-	data[4] = 0x00; // Blank
-	data[5] = 0xff; // Blank
-	data[6] = soc;
-	data[7] = bat_voltage / 100;
-	data[8] = bat_voltage % 100;
-	memcpy(&data[9], &ax, sizeof(int16_t)); // accel int16_t
-	memcpy(&data[13], &ay, sizeof(int16_t));
-	memcpy(&data[17], &az, sizeof(int16_t));
-	memcpy(&data[21], &gx, sizeof(int16_t)); // gyro int16_t
-	memcpy(&data[25], &gy, sizeof(int16_t));
-	memcpy(&data[29], &gz, sizeof(int16_t));
-	memcpy(&data[33], &qw, sizeof(int16_t)); // Quaterion code
-	memcpy(&data[37], &qx, sizeof(int16_t));
-	memcpy(&data[41], &qy, sizeof(int16_t));
-	memcpy(&data[45], &qz, sizeof(int16_t));
-	memcpy(&data[49], &heading, sizeof(int16_t)); // Eular int16_t
-	memcpy(&data[53], &roll, sizeof(int16_t));
-	memcpy(&data[57], &pitch, sizeof(int16_t));
+	data[4] = soc;
+	data[6] = bat_voltage / 100;
+	data[8] = 0x00;
+	memcpy(&data[9], &ax, sizeof(float)); // accel float
+	memcpy(&data[13], &ay, sizeof(float));
+	memcpy(&data[17], &az, sizeof(float));
+	memcpy(&data[21], &gx, sizeof(float)); // gyro float
+	memcpy(&data[25], &gy, sizeof(float));
+	memcpy(&data[29], &gz, sizeof(float));
+	memcpy(&data[33], &qw, sizeof(float)); // Quaterion code
+	memcpy(&data[37], &qx, sizeof(float));
+	memcpy(&data[41], &qy, sizeof(float));
+	memcpy(&data[45], &qz, sizeof(float));
+	memcpy(&data[49], &heading, sizeof(float)); // Eular float
+	memcpy(&data[53], &roll, sizeof(float));
+	memcpy(&data[57], &pitch, sizeof(float));
+	// memcpy(&data[61], &gvx, sizeof(float));
+	// memcpy(&data[65], &gvy, sizeof(float));
+	// memcpy(&data[69], &gvz, sizeof(float));
 	memcpy(&data[61], &led_status, sizeof(int8_t)); // status code
 	data[62] = 0x55;
 	if (ble_connected)
