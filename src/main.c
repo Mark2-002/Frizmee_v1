@@ -78,6 +78,14 @@ static const struct adc_dt_spec adc_channels[] = {DT_FOREACH_PROP_ELEM(DT_PATH(z
 #define MY_STACK_SIZE 1024
 #define MY_PRIORITY 5
 
+/* bno055 Address */
+#define BNO055_ACCEL_DATA_ADDR 0x08
+#define BNO055_MAG_DATA_ADDR 0x0E
+#define BNO055_GYRO_DATA_ADDR 0x14
+#define BNO055_EULER_DATA_ADDR 0x1A
+#define BNO055_QUATERNION_DATA_ADDR 0x20
+#define BNO055_LIA_DATA_ADDR 0x28
+#define BNO055_GRAVITY_DATA_ADDR 0x2E
 /* battery */
 int32_t bat_voltage = 0;
 uint8_t soc = 0;
@@ -150,63 +158,113 @@ int16_t axis_diff_ya = 0;
 int16_t axis_diff_zp = 0;
 int16_t axis_diff_za = 0;
 bool bno055_Eflag = 0;
+
+void readVector(uint8_t addr, float *x, float *y, float *z, float scale)
+{
+	uint8_t data[6];
+	int ret = i2c_burst_read(i2c, BNO055_i2C_ADDR, addr, data, sizeof(data));
+	if (ret < 0)
+	{
+		printf("I2C read error: %d\n", ret);
+		return;
+	}
+	// Combine the two bytes for each axis and apply scale
+	// *x = ((int16_t)data[0] | (((int16_t)data[1]) << 8)) / scale;
+	// *y = ((int16_t)data[2] | (((int16_t)data[3]) << 8)) / scale;
+	// *z = ((int16_t)data[4] | (((int16_t)data[5]) << 8)) / scale;
+	int16_t raw = (int16_t)((data[1] << 8) | data[0]);
+	*x = (float)raw / scale;
+	raw = (int16_t)((data[3] << 8) | data[2]);
+	*y = (float)raw / scale;
+	raw = (int16_t)((data[5] << 8) | data[4]);
+	*z = (float)raw / scale;
+}
+void readQuaternion(float *x, float *y, float *z, float *w)
+{
+	uint8_t data[8];
+	int ret = i2c_burst_read(i2c, BNO055_i2C_ADDR, 0x20, data, sizeof(data));
+	if (ret < 0)
+	{
+		printf("I2C read error: %d\n", ret);
+		return;
+	}
+	// Combine the two bytes for each component and apply scale
+	int16_t raw = (int16_t)((data[1] << 8) | data[0]);
+	*w = (float)raw / 16384.0f;
+	raw = (int16_t)((data[3] << 8) | data[2]);
+	*x = (float)raw / 16384.0f;
+	raw = (int16_t)((data[5] << 8) | data[4]);
+	*y = (float)raw / 16384.0f;
+	raw = (int16_t)((data[7] << 8) | data[6]);
+	*z = (float)raw / 16384.0f;
+}
+
 void read_bno055(void)
 {
-	uint8_t buf[38];
-	k_msleep(1000);
-	if (i2c_burst_read(i2c, BNO055_i2C_ADDR, 0x08, buf, 38) < 0)
-	{
-		printk("Read error!\n");
-		bno055_Eflag = 1;
-		led_status = 7;
-		k_msleep(2000);
-	}
-	else
-	{
-		bno055_Eflag = 0;
-	}
-	ax = (buf[1] << 8) | buf[0];
-	ay = (buf[3] << 8) | buf[2];
-	az = (buf[5] << 8) | buf[4];
-	mx = (buf[7] << 8) | buf[6];
-	my = (buf[9] << 8) | buf[8];
-	mz = (buf[11] << 8) | buf[10];
-	gx = (buf[13] << 8) | buf[12];
-	gy = (buf[15] << 8) | buf[14];
-	gz = (buf[17] << 8) | buf[16];
-	heading = (buf[19] << 8) | buf[18];
-	roll = (buf[21] << 8) | buf[20];
-	pitch = (buf[23] << 8) | buf[22];
-	qw = (buf[25] << 8) | buf[24];
-	qx = (buf[27] << 8) | buf[26];
-	qy = (buf[29] << 8) | buf[28];
-	qz = (buf[31] << 8) | buf[30];
-	lax = (buf[33] << 8) | buf[32];
-	lay = (buf[35] << 8) | buf[34];
-	laz = (buf[37] << 8) | buf[36];
-	// gvx = (buf[39] << 8) | buf[38];
-	// gvy = (buf[41] << 8) | buf[40];
-	// gvz = (buf[43] << 8) | buf[42];
+	readVector(BNO055_ACCEL_DATA_ADDR, &ax, &ay, &az, 100.0f);			// Acceleration in m/s²
+	readVector(BNO055_GYRO_DATA_ADDR, &gx, &gy, &gz, 16.0f);			// Gyroscope in °/s
+	readVector(BNO055_MAG_DATA_ADDR, &mx, &my, &mz, 16.0f);				// Magnetometer in µT
+	readVector(BNO055_EULER_DATA_ADDR, &heading, &roll, &pitch, 16.0f); // Euler angles in °
+	readQuaternion(&qx, &qy, &qz, &qw);									// Quaternion
+	readVector(BNO055_LIA_DATA_ADDR, &lax, &lay, &laz, 100.0f);			// Linear acceleration in m/s²
+	// readVector(BNO055_GRAVITY_DATA_ADDR, &gx2, &gy2, &gz2, 100.0f); // Gravity vector in m/s²
+	// Quaternion
 
-	ax = ax / 100.0f;
-	ay = ay / 100.0f;
-	az = az / 100.0f;
-	mx = mx / 16.0f;
-	my = my / 16.0f;
-	mz = mz / 16.0f;
-	gx = gx / 16.0f;
-	gy = gy / 16.0f;
-	gz = gz / 16.0f;
-	heading = heading / 16.0f;
-	roll = roll / 16.0f;
-	pitch = pitch / 16.0f;
-	qw = qw / 16384.0f;
-	qx = qx / 16384.0f;
-	qy = qy / 16384.0f;
-	qz = qz / 16384.0f;
-	lax = lax / 100.0f;
-	lay = lay / 100.0f;
-	laz = laz / 100.0f;
+	// uint8_t buf[38];
+	// k_msleep(1000);
+	// if (i2c_burst_read(i2c, BNO055_i2C_ADDR, 0x08, buf, 38) < 0)
+	// {
+	// 	printk("Read error!\n");
+	// 	bno055_Eflag = 1;
+	// 	led_status = 7;
+	// 	k_msleep(2000);
+	// }
+	// else
+	// {
+	// 	bno055_Eflag = 0;
+	// }
+	// ax = (buf[1] << 8) | buf[0];
+	// ay = (buf[3] << 8) | buf[2];
+	// az = (buf[5] << 8) | buf[4];
+	// mx = (buf[7] << 8) | buf[6];
+	// my = (buf[9] << 8) | buf[8];
+	// mz = (buf[11] << 8) | buf[10];
+	// gx = (buf[13] << 8) | buf[12];
+	// gy = (buf[15] << 8) | buf[14];
+	// gz = (buf[17] << 8) | buf[16];
+	// heading = (buf[19] << 8) | buf[18];
+	// roll = (buf[21] << 8) | buf[20];
+	// pitch = (buf[23] << 8) | buf[22];
+	// qw = (buf[25] << 8) | buf[24];
+	// qx = (buf[27] << 8) | buf[26];
+	// qy = (buf[29] << 8) | buf[28];
+	// qz = (buf[31] << 8) | buf[30];
+	// lax = (buf[33] << 8) | buf[32];
+	// lay = (buf[35] << 8) | buf[34];
+	// laz = (buf[37] << 8) | buf[36];
+	// // gvx = (buf[39] << 8) | buf[38];
+	// // gvy = (buf[41] << 8) | buf[40];
+	// // gvz = (buf[43] << 8) | buf[42];
+
+	// ax = ax / 100.0f;
+	// ay = ay / 100.0f;
+	// az = az / 100.0f;
+	// mx = mx / 16.0f;
+	// my = my / 16.0f;
+	// mz = mz / 16.0f;
+	// gx = gx / 16.0f;
+	// gy = gy / 16.0f;
+	// gz = gz / 16.0f;
+	// heading = heading / 16.0f;
+	// roll = roll / 16.0f;
+	// pitch = pitch / 16.0f;
+	// qw = qw / 16384.0f;
+	// qx = qx / 16384.0f;
+	// qy = qy / 16384.0f;
+	// qz = qz / 16384.0f;
+	// lax = lax / 100.0f;
+	// lay = lay / 100.0f;
+	// laz = laz / 100.0f;
 	// gvx = gvx/100.0f;
 	// gvy = gvx/100.0f;
 	// gvz = gvx/100.0f;
